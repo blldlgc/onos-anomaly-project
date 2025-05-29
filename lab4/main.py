@@ -127,3 +127,19 @@ def predict_anomaly(device_id: str):
         "anomaly": int(prediction[0])
     }
 
+@app.get("/topology")
+def get_topology():
+    # Devices
+    devices_resp = requests.get(f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/devices", auth=AUTH)
+    devices = devices_resp.json().get("devices", []) if devices_resp.status_code == 200 else []
+
+    # Hosts
+    hosts_resp = requests.get(f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/hosts", auth=AUTH)
+    hosts = hosts_resp.json().get("hosts", []) if hosts_resp.status_code == 200 else []
+
+    # Links
+    links_resp = requests.get(f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/links", auth=AUTH)
+    links = links_resp.json().get("links", []) if links_resp.status_code == 200 else []
+
+    return {"devices": devices, "hosts": hosts, "links": links}
+

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import * as types from "./types/NetworkDevice";
 console.log("Types import:", types);
-import DeviceTable from "./components/DeviceTable";
 
+import DeviceTable from "./components/DeviceTable";
+import TopologyGraph from "./components/TopologyGraph";
 
 function App() {
   const [devices, setDevices] = useState<(NetworkDevice & { anomaly?: number })[]>([]);
@@ -37,11 +38,14 @@ function App() {
   return (
     <div style={{ padding: "20px" }}>
       <h1>SDN Anomaly Detection Panel</h1>
+
+      <h2>Cihazlar ve Tahminler</h2>
       <DeviceTable devices={devices} />
+
+      <h2>Ağ Topolojisi</h2>
+      <TopologyGraph />
     </div>
   );
 }
 
 export default App;
-
-
