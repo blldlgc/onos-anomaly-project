@@ -7,6 +7,7 @@ import TopologyGraph from "./components/TopologyGraph";
 
 function App() {
   const [devices, setDevices] = useState<(NetworkDevice & { anomaly?: number })[]>([]);
+  const [lastUpdate, setLastUpdate] = useState<string>("");
 
   const fetchDevicesAndPredict = async () => {
     try {
@@ -24,6 +25,7 @@ function App() {
       );
 
       setDevices(devicesWithAnomaly);
+      setLastUpdate(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("API hatası:", err);
     }
@@ -36,14 +38,40 @@ function App() {
   }, []);
 
   return (
-    <div style={{ padding: "20px" }}>
+    <div style={{ 
+      padding: "20px",
+      maxWidth: "1200px",
+      margin: "0 auto",
+      width: "100%",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center"
+    }}>
       <h1>SDN Anomaly Detection Panel</h1>
 
-      <h2>Cihazlar ve Tahminler</h2>
-      <DeviceTable devices={devices} />
-
       <h2>Ağ Topolojisi</h2>
-      <TopologyGraph />
+      <div style={{ width: "100%" }}>
+        <TopologyGraph devices={devices} />
+      </div>
+
+      <h2>
+        Cihazlar ve Tahminler
+        {lastUpdate && <span style={{ fontSize: "0.8em", marginLeft: "10px", color: "#666" }}>
+          (Son güncelleme: {lastUpdate})
+        </span>}
+      </h2>
+      <div style={{ 
+        width: "100%",
+        display: "flex",
+        justifyContent: "center"
+      }}>
+        <div style={{ 
+          width: "90%",
+          maxWidth: "1000px"
+        }}>
+          <DeviceTable devices={devices} />
+        </div>
+      </div>
     </div>
   );
 }

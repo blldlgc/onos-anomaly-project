@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 
 interface NetworkDevice {
@@ -25,8 +25,32 @@ interface TopologyData {
   links: NetworkLink[];
 }
 
-const TopologyGraph: React.FC = () => {
+interface TopologyGraphProps {
+  devices: NetworkDevice[];
+}
+
+const TopologyGraph: React.FC<TopologyGraphProps> = ({ devices }) => {
   const [elements, setElements] = useState<any[]>([]);
+  const [layout, setLayout] = useState<any>({
+    name: "cose",
+    idealEdgeLength: 200,
+    nodeOverlap: 50,
+    refresh: 20,
+    fit: true,
+    padding: 100,
+    randomize: false,
+    componentSpacing: 300,
+    nodeRepulsion: 15000,
+    edgeElasticity: 200,
+    nestingFactor: 1.5,
+    gravity: 0.5,
+    numIter: 2000,
+    initialTemp: 300,
+    coolingFactor: 0.98,
+    animate: true,
+    animateFilter: () => true
+  });
+  const cyRef = useRef<any>(null);
 
   useEffect(() => {
     const fetchTopology = async () => {
@@ -54,8 +78,6 @@ const TopologyGraph: React.FC = () => {
           },
         }));
 
-        console.log("Edges:", edges);
-
         setElements([...nodes, ...edges]);
       } catch (err) {
         console.error("Topology API hatası:", err);
@@ -65,29 +87,38 @@ const TopologyGraph: React.FC = () => {
     fetchTopology();
   }, []);
 
+  useEffect(() => {
+    if (cyRef.current) {
+      const cy = cyRef.current;
+      const layout = cy.layout({
+        name: "cose",
+        idealEdgeLength: 200,
+        nodeOverlap: 50,
+        refresh: 20,
+        fit: true,
+        padding: 100,
+        randomize: false,
+        componentSpacing: 300,
+        nodeRepulsion: 15000,
+        edgeElasticity: 200,
+        nestingFactor: 1.5,
+        gravity: 0.5,
+        numIter: 2000,
+        initialTemp: 300,
+        coolingFactor: 0.98,
+        animate: true,
+        animateFilter: () => true
+      });
+      layout.run();
+    }
+  }, [elements]);
+
   return (
     <div style={{ height: "800px" }}>
       <CytoscapeComponent
         elements={elements}
         style={{ width: "100%", height: "100%" }}
-        layout={{
-          name: "cose",
-          idealEdgeLength: 150,
-          nodeOverlap: 20,
-          refresh: 20,
-          fit: true,
-          padding: 50,
-          randomize: true,
-          componentSpacing: 200,
-          nodeRepulsion: 8000,
-          edgeElasticity: 100,
-          nestingFactor: 1.2,
-          gravity: 1,
-          numIter: 1000,
-          initialTemp: 200,
-          coolingFactor: 0.95,
-          animate: true,
-        }}
+        layout={layout}
         stylesheet={[
           {
             selector: "node",
@@ -116,6 +147,9 @@ const TopologyGraph: React.FC = () => {
             },
           },
         ]}
+        cy={(cy) => {
+          cyRef.current = cy;
+        }}
       />
     </div>
   );
