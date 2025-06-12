@@ -5,26 +5,47 @@ console.log("Types import:", types);
 import DeviceTable from "./components/DeviceTable";
 import TopologyGraph from "./components/TopologyGraph";
 
+interface DeviceData {
+  id?: string;
+  device_id?: string;
+  flow_count: number;
+  total_packets: number;
+  total_bytes: number;
+  avg_packet_size: number;
+  link_count: number;
+  predicted_total_packets_t_plus_15?: number;
+  anomaly: boolean;
+}
+
 function App() {
-  const [devices, setDevices] = useState<(NetworkDevice & { anomaly?: number })[]>([]);
+  const [devices, setDevices] = useState<DeviceData[]>([]);
   const [lastUpdate, setLastUpdate] = useState<string>("");
 
   const fetchDevicesAndPredict = async () => {
     try {
       const res = await fetch("http://127.0.0.1:8000/devices");
-      const deviceData: NetworkDevice[] = await res.json();
+      const deviceData: DeviceData[] = await res.json();
 
-      const devicesWithAnomaly = await Promise.all(
+      const devicesWithPredictions = await Promise.all(
         deviceData.map(async (device) => {
-          const predictRes = await fetch(`http://127.0.0.1:8000/predict/${device.id}`, {
-            method: "POST",
-          });
-          const predictData = await predictRes.json();
-          return { ...device, anomaly: predictData.anomaly };
+          try {
+            const predictRes = await fetch(`http://127.0.0.1:8000/predict/${device.id}`, {
+              method: "POST",
+            });
+            const predictData = await predictRes.json();
+            return {
+              ...device,
+              predicted_total_packets_t_plus_15: predictData.predicted_total_packets_t_plus_15,
+              anomaly: predictData.anomaly
+            };
+          } catch (error) {
+            console.error(`Tahmin hatası (${device.id}):`, error);
+            return device;
+          }
         })
       );
 
-      setDevices(devicesWithAnomaly);
+      setDevices(devicesWithPredictions);
       setLastUpdate(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("API hatası:", err);
@@ -47,7 +68,7 @@ function App() {
       flexDirection: "column",
       alignItems: "center"
     }}>
-      <h1>t+15 Anomaly Prediction</h1>
+      <h1>SDN Anomaly Detection Panel</h1>
 
       <h2>Ağ Topolojisi</h2>
       <div style={{ width: "100%" }}>

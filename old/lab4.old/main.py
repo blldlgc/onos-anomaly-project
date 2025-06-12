@@ -1,33 +1,37 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import requests
-import joblib
 import numpy as np
-import os
+from tensorflow.keras.models import load_model
+import joblib
 
-# ONOS API Ayarları
+# === ONOS API Ayarları ===
 ONOS_IP = "localhost"
 ONOS_PORT = 8181
 AUTH = ('onos', 'rocks')
 
-# ML Model Yolu (t+15 modelini kullan)
-MODEL_PATH = "model/t_plus_15_anomaly_model.pkl"
+# === Model ve Scaler Yolu ===
+MODEL_PATH = "model/packet_predictor_model.h5"
+SCALER_PATH = "model/scaler.pkl"
 
-# Modeli yükle
+# === Model ve Scaler Yükleme ===
 try:
-    model = joblib.load(MODEL_PATH)
+    model = load_model(MODEL_PATH, compile=False)
+    scaler = joblib.load(SCALER_PATH)
+    print("✅ Model ve scaler başarıyla yüklendi.")
 except Exception as e:
-    print(f"Model yüklenemedi: {e}")
+    print(f"❌ Model veya scaler yüklenemedi: {e}")
     model = None
+    scaler = None
 
-# FastAPI uygulaması
+# === FastAPI Uygulaması ===
 app = FastAPI(
-    title="SDN Anomaly Prediction (t+15)",
-    description="ONOS'tan anlık veriler alarak 15 saniye sonrasında anomali tahmini yapan API",
+    title="SDN T+15 Traffic Predictor",
+    description="ONOS cihaz verilerinden 15 saniye sonrası paket sayısını tahmin eder ve anomalileri tespit eder.",
     version="2.0"
 )
 
-# CORS Ayarı (React ile iletişim için)
+# === CORS Ayarları ===
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,6 +39,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# === Cihaz Listesi ===
 @app.get("/devices")
 def get_devices():
     device_url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/devices"
@@ -43,7 +48,14 @@ def get_devices():
         return {"error": f"ONOS devices API hatası: {device_resp.status_code}"}
 
     devices_raw = device_resp.json().get('devices', [])
-    devices = {d['id']: {"id": d['id'], "flow_count": 0, "total_packets": 0, "total_bytes": 0, "avg_packet_size": 0, "link_count": 0} for d in devices_raw}
+    devices = {d['id']: {
+        "id": d['id'],
+        "flow_count": 0,
+        "total_packets": 0,
+        "total_bytes": 0,
+        "avg_packet_size": 0,
+        "link_count": 0
+    } for d in devices_raw}
 
     flow_url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/flows"
     flow_resp = requests.get(flow_url, auth=AUTH)
@@ -72,17 +84,12 @@ def get_devices():
 
     return list(devices.values())
 
+# === Tahmin & Anomali Tespiti ===
 @app.post("/predict/{device_id}")
-def predict_anomaly(device_id: str):
-    device_url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/devices/{device_id}"
-    device_resp = requests.get(device_url, auth=AUTH)
-    if device_resp.status_code != 200:
-        return {"error": f"ONOS device API hatası: {device_resp.status_code}"}
-
+def predict_future_packets(device_id: str):
     flow_url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/flows/{device_id}"
-    flow_resp = requests.get(flow_url, auth=AUTH)
-
     link_url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/links"
+    flow_resp = requests.get(flow_url, auth=AUTH)
     link_resp = requests.get(link_url, auth=AUTH)
 
     flow_count = 0
@@ -104,11 +111,17 @@ def predict_anomaly(device_id: str):
             if device_id in (l.get('src', {}).get('device'), l.get('dst', {}).get('device')):
                 link_count += 1
 
-    if model is None:
-        return {"error": "Model yüklenemedi."}
+    if model is None or scaler is None:
+        return {"error": "Model veya scaler yüklenemedi."}
 
-    data = np.array([[total_packets, total_bytes, avg_packet_size, flow_count, link_count]])
-    prediction = model.predict(data)
+    # === Tahmin Girdisi ve Çıktısı ===
+    input_array = np.array([[avg_packet_size, flow_count, total_packets, total_bytes, link_count]])
+    scaled_input = scaler.transform(input_array)
+    predicted_total_packets = model.predict(scaled_input)[0][0]
+
+    # === Anomali Tespiti ===
+    threshold = 1000  # İyi kalibre edilmiş eşik
+    anomaly = abs(predicted_total_packets - total_packets) > threshold
 
     return {
         "device_id": device_id,
@@ -117,18 +130,19 @@ def predict_anomaly(device_id: str):
         "total_bytes": total_bytes,
         "avg_packet_size": avg_packet_size,
         "link_count": link_count,
-        "predicted_anomaly_t_plus_15": bool(prediction[0])
+        "predicted_total_packets_t_plus_15": int(predicted_total_packets),
+        "anomaly": bool(anomaly)
     }
 
+# === Topoloji ===
 @app.get("/topology")
 def get_topology():
     devices_resp = requests.get(f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/devices", auth=AUTH)
-    devices = devices_resp.json().get("devices", []) if devices_resp.status_code == 200 else []
-
     hosts_resp = requests.get(f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/hosts", auth=AUTH)
-    hosts = hosts_resp.json().get("hosts", []) if hosts_resp.status_code == 200 else []
-
     links_resp = requests.get(f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/links", auth=AUTH)
+
+    devices = devices_resp.json().get("devices", []) if devices_resp.status_code == 200 else []
+    hosts = hosts_resp.json().get("hosts", []) if hosts_resp.status_code == 200 else []
     links = links_resp.json().get("links", []) if links_resp.status_code == 200 else []
 
     return {"devices": devices, "hosts": hosts, "links": links}

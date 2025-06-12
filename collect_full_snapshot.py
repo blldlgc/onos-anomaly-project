@@ -1,5 +1,4 @@
 import requests
-import os
 import json
 import time
 from datetime import datetime
@@ -10,28 +9,22 @@ ONOS_IP = "127.0.0.1"
 ONOS_PORT = "8181"
 ONOS_AUTH = ("onos", "rocks")
 
-# Mininet Host Listesi (örnek)
-hosts = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7', 'h8', 'h9', 'h10',
-         'h11', 'h12', 'h13', 'h14', 'h15', 'h16', 'h17', 'h18', 'h19', 'h20',
-         'h21', 'h22', 'h23', 'h24', 'h25', 'h26', 'h27', 'h28', 'h29', 'h30',
-         'h31', 'h32', 'h33', 'h34', 'h35', 'h36', 'h37', 'h38', 'h39', 'h40',
-         'h41', 'h42', 'h43', 'h44', 'h45', 'h46', 'h47', 'h48', 'h49', 'h50',
-         'h51', 'h52', 'h53', 'h54', 'h55', 'h56', 'h57', 'h58', 'h59', 'h60']
-
-
-# Snapshot JSON Dosyası
+# Snapshot kayıt dosyası
 SNAPSHOT_FILE = "full_network_snapshot.json"
 
+# 🔧 ONOS cihazlarını al
 def get_onos_devices():
     url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/devices"
     r = requests.get(url, auth=ONOS_AUTH)
     return r.json().get("devices", [])
 
+# 🔧 ONOS bağlantı (link) bilgilerini al
 def get_onos_links():
     url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/links"
     r = requests.get(url, auth=ONOS_AUTH)
     return r.json().get("links", [])
 
+# 🔧 Flow sayılarını her cihaz için al
 def get_onos_flow_stats():
     url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/flows"
     r = requests.get(url, auth=ONOS_AUTH)
@@ -41,31 +34,37 @@ def get_onos_flow_stats():
         flow_count_per_device[flow['deviceId']] += 1
     return flow_count_per_device
 
+# 🔧 Port istatistiklerini al
 def get_onos_port_stats():
     url = f"http://{ONOS_IP}:{ONOS_PORT}/onos/v1/statistics/ports"
     r = requests.get(url, auth=ONOS_AUTH)
     port_stats = r.json().get("statistics", [])
-    stats_per_device = Counter()
+
     bytes_per_device = Counter()
     packets_per_device = Counter()
     avg_packet_size_per_device = {}
-    for stat in port_stats:
-        dev = stat['device']
-        bytes_count = stat.get('bytes', 0)
-        packets_count = stat.get('packets', 0)
-        stats_per_device[dev] += 1
-        bytes_per_device[dev] += bytes_count
-        packets_per_device[dev] += packets_count
-        avg_packet_size_per_device[dev] = (bytes_count / packets_count) if packets_count > 0 else 0
+
+    for device_entry in port_stats:
+        dev = device_entry['device']
+        total_bytes = 0
+        total_packets = 0
+        for port_stat in device_entry.get("ports", []):
+            total_bytes += port_stat.get('bytesReceived', 0) + port_stat.get('bytesSent', 0)
+            total_packets += port_stat.get('packetsReceived', 0) + port_stat.get('packetsSent', 0)
+        bytes_per_device[dev] = total_bytes
+        packets_per_device[dev] = total_packets
+        avg_packet_size_per_device[dev] = (total_bytes / total_packets) if total_packets > 0 else 0
+
     return bytes_per_device, packets_per_device, avg_packet_size_per_device
 
+# 🔄 Anlık snapshot verisi topla
 def collect_snapshot():
     timestamp = datetime.now().isoformat()
     devices = get_onos_devices()
     links = get_onos_links()
     flow_counts = get_onos_flow_stats()
     bytes_counts, packets_counts, avg_packet_sizes = get_onos_port_stats()
-    
+
     # Graph metric: link_count (degree)
     degrees = Counter()
     for link in links:
@@ -74,13 +73,22 @@ def collect_snapshot():
 
     snapshots = []
     for device in devices:
+        if not device.get("available"):
+            continue  # Sadece aktif cihazlar
+
         device_id = device.get('id')
+        annotations = device.get('annotations', {})
+
         snapshot = {
             "timestamp": timestamp,
             "id": device_id,
             "type": device.get('type'),
             "available": device.get('available'),
-            "protocol": device.get('protocols', [None])[0],
+            "protocol": device.get('protocol', 'unknown'),
+            "mfr": device.get('mfr', 'unknown'),
+            "sw_version": device.get('sw', 'unknown'),
+            "hw_version": device.get('hw', 'unknown'),
+            "mgmt_address": annotations.get('managementAddress', 'unknown'),
             "flow_count": flow_counts.get(device_id, 0),
             "total_packets": packets_counts.get(device_id, 0),
             "total_bytes": bytes_counts.get(device_id, 0),
@@ -89,20 +97,20 @@ def collect_snapshot():
         }
         snapshots.append(snapshot)
 
-    # JSONL formatında kaydet
+    # JSONL olarak dosyaya yaz
     with open(SNAPSHOT_FILE, "a") as f:
         for entry in snapshots:
             f.write(json.dumps(entry) + "\n")
 
-    print(f"[{timestamp}] Snapshot collected: {len(snapshots)} entries")
+    print(f"[{timestamp}] ✅ Snapshot collected: {len(snapshots)} entries")
 
-# Ana döngü
+# 🌀 Sonsuz döngü: her 5 saniyede bir snapshot al
 if __name__ == "__main__":
     while True:
         try:
             collect_snapshot()
             time.sleep(5)
         except Exception as e:
-            print(f"Hata: {e}")
+            print(f"❌ Hata: {e}")
             time.sleep(5)
 

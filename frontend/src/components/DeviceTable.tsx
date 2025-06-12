@@ -17,7 +17,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({ devices }) => {
           <th>Total Bytes</th>
           <th>Avg Packet Size</th>
           <th>Link Count</th>
-          <th>Anomaly</th>
+          <th>t+15 Anomaly Prediction</th>
         </tr>
       </thead>
       <tbody>
